@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Number One</title>
+<link rel="icon" href="logo.webp">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Prata&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+
+  <section id="home">
+    <img class="logo" src="logo.webp" alt="Number One">
+
+    <section class="player" aria-label="Музыка">
+      <div class="now">
+        <button class="ctrl" id="prev" type="button" aria-label="Предыдущий трек"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+        <button class="ctrl play" id="play" type="button" aria-label="Играть"><svg viewBox="0 0 24 24" id="play-ico"><path d="M7 4v16l13-8z"/></svg></button>
+        <button class="ctrl" id="next" type="button" aria-label="Следующий трек"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+        <div class="meta"><div class="title" id="p-title">Музыка скоро появится</div>
+          <div class="prog"><input class="bar" id="bar" type="range" min="0" max="1000" value="0" aria-label="Позиция в треке"><span class="time" id="p-time">0:00 / 0:00</span></div>
+        </div>
+      </div>
+      <ul class="tracks" id="tracks"></ul>
+      <audio id="audio" preload="metadata"></audio>
+    </section>
+
+    <h2 class="promo-h">Меню</h2>
+    <nav aria-label="Меню">
+      <a class="pill" id="l-assort" target="_blank" rel="noopener">Ассортимент</a>
+      <div class="grid">
+        <a class="pill" href="#reviews">Отзывы</a>
+        <a class="pill" href="#jobs">Вакансии</a>
+        <a class="pill" id="l-opt" target="_blank" rel="noopener">Опт</a>
+        <a class="pill" id="l-manager" target="_blank" rel="noopener">Менеджер</a>
+      </div>
+      <a class="pill chat" id="l-chat" target="_blank" rel="noopener">Наш чат в Telegram</a>
+    </nav>
+
+    <section class="promo" aria-label="Акции">
+      <h2 class="promo-h">Акции</h2>
+      <div class="days" id="days" role="tablist"></div>
+      <div class="promo-card" id="promo-card" role="tabpanel">
+        <p class="promo-when" id="promo-when"></p>
+        <h3 class="promo-title" id="promo-title"></h3>
+        <p class="promo-text" id="promo-text"></p>
+      </div>
+    </section>
+    <p class="foot">© Number One</p>
+  </section>
+
+  <section id="jobs" hidden>
+    <a class="pill back" href="#">‹ На главную</a>
+    <h1>Вакансии</h1>
+    <p class="sub">Мы ищем людей в команду</p>
+    <div class="list" id="jobs-list"></div>
+  </section>
+
+  <section id="reviews" hidden>
+    <a class="pill back" href="#">‹ На главную</a>
+    <h1>Отзывы</h1>
+    <p class="sub">Что говорят наши клиенты</p>
+    <div class="gallery" id="gallery"></div>
+  </section>
+
+</main>
+
+<div class="lb" id="lb" hidden>
+  <button class="pill close small" id="lb-close" type="button">Закрыть</button>
+  <img id="lb-img" alt="Отзыв">
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const getJSON = p => fetch(p + "?t=" + Date.now()).then(r => r.ok ? r.json() : null).catch(() => null);
+
+/* routing */
+function route(){
+  const r = location.hash === "#reviews", j = location.hash === "#jobs";
+  $("home").hidden = r || j; $("reviews").hidden = !r; $("jobs").hidden = !j;
+  window.scrollTo(0,0);
+}
+window.addEventListener("hashchange", route);
+route();
+
+/* player */
+const audio=$("audio"), bar=$("bar"), playIco=$("play-ico"), playBtn=$("play");
+const PLAY='<path d="M7 4v16l13-8z"/>', PAUSE='<path d="M6 4h4v16H6zM14 4h4v16h-4z"/>';
+let TRACKS=[], cur=0;
+const mmss=s=>{s=Math.floor(s||0);return Math.floor(s/60)+":"+String(s%60).padStart(2,"0")};
+function mark(){[...$("tracks").querySelectorAll(".track")].forEach(b=>b.classList.toggle("on",+b.dataset.i===cur))}
+function load(i){cur=i;$("p-title").textContent=TRACKS[i].title;audio.src=TRACKS[i].file;bar.value=0;bar.style.setProperty("--p","0%");$("p-time").textContent="0:00 / 0:00";mark()}
+function step(d){if(!TRACKS.length)return;const was=!audio.paused;load((cur+d+TRACKS.length)%TRACKS.length);if(was)audio.play().catch(()=>{})}
+function setupPlayer(list){
+  TRACKS=(list||[]).filter(t=>t&&t.file);
+  const on=TRACKS.length>0;
+  [playBtn,$("prev"),$("next"),bar].forEach(el=>el.disabled=!on);
+  $("tracks").textContent="";
+  TRACKS.forEach((tr,i)=>{
+    const li=document.createElement("li"),b=document.createElement("button");
+    b.type="button";b.className="track";b.dataset.i=i;
+    const n=document.createElement("span");n.className="n";n.textContent=i+1;
+    const s=document.createElement("span");s.textContent=tr.title||("Трек "+(i+1));
+    b.append(n,s);b.onclick=()=>{load(i);audio.play().catch(()=>{})};
+    li.appendChild(b);$("tracks").appendChild(li);
+  });
+  if(on){load(0);autoStart();}
+}
+/* автозапуск: браузеры часто запрещают звук без действия пользователя,
+   поэтому если сразу не вышло — музыка включится при первом касании страницы */
+let autoArmed=false, playerTouched=false;
+function autoStart(){
+  audio.play().catch(()=>{
+    if(autoArmed)return; autoArmed=true;
+    const go=e=>{
+      if(e.target.closest&&e.target.closest(".player")){playerTouched=true;return;} // плеером управляет сам пользователь
+      ["pointerdown","keydown","touchstart"].forEach(ev=>document.removeEventListener(ev,go,true));
+      if(!playerTouched&&audio.paused&&TRACKS.length)audio.play().catch(()=>{});
+    };
+    ["pointerdown","keydown","touchstart"].forEach(ev=>document.addEventListener(ev,go,true));
+  });
+}
+playBtn.onclick=()=>{if(!TRACKS.length)return;audio.paused?audio.play().catch(()=>{}):audio.pause()};
+$("prev").onclick=()=>step(-1); $("next").onclick=()=>step(1);
+audio.onplay=()=>{playIco.innerHTML=PAUSE;playBtn.setAttribute("aria-label","Пауза")};
+audio.onpause=()=>{playIco.innerHTML=PLAY;playBtn.setAttribute("aria-label","Играть")};
+audio.ontimeupdate=()=>{if(audio.duration){bar.value=audio.currentTime/audio.duration*1000;bar.style.setProperty("--p",bar.value/10+"%");$("p-time").textContent=mmss(audio.currentTime)+" / "+mmss(audio.duration)}};
+audio.onended=()=>{step(1);audio.play().catch(()=>{})};
+bar.oninput=()=>{bar.style.setProperty("--p",bar.value/10+"%");if(audio.duration)audio.currentTime=bar.value/1000*audio.duration};
+setupPlayer([]);
+
+/* promos */
+const DAYS=[["Пн","Понедельник"],["Вт","Вторник"],["Ср","Среда"],["Чт","Четверг"],["Пт–Вс","Пятница, суббота и воскресенье"]];
+const todayIdx=(()=>{const d=new Date().getDay();return d===0||d>=5?4:d-1})();
+let PROMOS=[];
+function showPromo(i){
+  [...$("days").children].forEach((b,k)=>{b.classList.toggle("on",k===i);b.setAttribute("aria-selected",k===i)});
+  const p=PROMOS[i]||{};
+  $("promo-when").textContent=(i===todayIdx?"Сегодня · ":"")+DAYS[i][1];
+  $("promo-title").textContent=p.title||"Акции нет";
+  $("promo-text").textContent=p.text||"";
+}
+DAYS.forEach(([s],i)=>{const b=document.createElement("button");b.type="button";b.className="day";b.textContent=s;b.setAttribute("role","tab");b.onclick=()=>showPromo(i);$("days").appendChild(b)});
+showPromo(todayIdx);
+
+/* config: links, vacancies, music */
+getJSON("config.json").then(cfg=>{
+  cfg=cfg||{};
+  const L=cfg.links||{};
+  $("l-assort").href=L.assort||"#"; $("l-opt").href=L.opt||"#"; $("l-manager").href=L.manager||"#"; $("l-chat").href=L.chat||"#";
+  const jl=$("jobs-list"); jl.textContent="";
+  const vac=cfg.vacancies||[];
+  if(!vac.length){jl.innerHTML='<p class="empty">Сейчас открытых вакансий нет.</p>'}
+  vac.forEach(v=>{
+    const a=document.createElement("article");a.className="card";
+    const h=document.createElement("div");h.className="card-head";
+    const n=document.createElement("span");n.className="name";n.textContent=v.title||"";
+    const d=document.createElement("span");d.className="date";d.textContent=v.type||"";
+    const p=document.createElement("p");p.className="vac-body";p.textContent=v.text||"";
+    h.append(n,d);a.append(h,p);jl.appendChild(a);
+  });
+  setupPlayer(cfg.tracks);
+  PROMOS=cfg.promos||[]; showPromo(todayIdx);
+});
+
+/* reviews: photos */
+getJSON("reviews.json").then(list=>{
+  const g=$("gallery"); g.textContent="";
+  list=list||[];
+  if(!list.length){g.outerHTML='<p class="empty" id="gallery">Отзывы скоро появятся.</p>';return}
+  list.forEach(r=>{
+    const b=document.createElement("button");b.type="button";b.className="shot";b.setAttribute("aria-label","Открыть отзыв");
+    const im=document.createElement("img");im.loading="lazy";im.src=r.file;im.alt="Отзыв клиента";
+    b.appendChild(im);b.onclick=()=>{$("lb-img").src=r.file;$("lb").hidden=false};
+    g.appendChild(b);
+  });
+});
+const closeLb=()=>{$("lb").hidden=true};
+$("lb-close").onclick=closeLb;
+$("lb").onclick=e=>{if(e.target.id==="lb")closeLb()};
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeLb()});
+</script>
+</body>
+</html>

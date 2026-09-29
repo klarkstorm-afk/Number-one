@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<title>Админка — Number One</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Prata&family=Manrope:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="wrap">
+  <h1>Админка</h1>
+
+  <!-- вход -->
+  <section id="login" class="form stack">
+    <h2>Вход через GitHub</h2>
+    <div><label class="label" for="s-owner">Владелец (логин GitHub)</label><input class="field" id="s-owner" autocomplete="off"></div>
+    <div><label class="label" for="s-repo">Репозиторий</label><input class="field" id="s-repo" autocomplete="off"></div>
+    <div><label class="label" for="s-branch">Ветка</label><input class="field" id="s-branch" value="main" autocomplete="off"></div>
+    <div><label class="label" for="s-token">Токен доступа GitHub</label><input class="field" id="s-token" type="password" autocomplete="off" placeholder="github_pat_…"></div>
+    <div class="row"><button class="pill" id="do-login" type="button">Войти</button><span class="msg" id="login-msg" role="status"></span></div>
+  </section>
+
+  <!-- панель -->
+  <section id="panel" hidden>
+    <div class="tabs" role="tablist">
+      <button class="pill on" data-tab="t-reviews" type="button">Отзывы</button>
+      <button class="pill" data-tab="t-links" type="button">Ссылки</button>
+      <button class="pill" data-tab="t-jobs" type="button">Вакансии</button>
+      <button class="pill" data-tab="t-promos" type="button">Акции</button>
+      <button class="pill" data-tab="t-music" type="button">Музыка</button>
+    </div>
+
+    <p class="msg" id="msg" role="status" style="margin:0 0 16px 6px"></p>
+
+    <div id="t-reviews" class="tab">
+      <div class="form stack">
+        <h2>Добавить отзывы</h2>
+        <p class="sub" style="margin:0">Выберите одно или несколько фото или скриншотов. Новые появятся первыми.</p>
+        <input class="field" id="rev-files" type="file" accept="image/*" multiple>
+        <div class="row"><button class="pill" id="rev-upload" type="button">Загрузить</button></div>
+      </div>
+      <div id="rev-list"></div>
+    </div>
+
+    <div id="t-links" class="tab" hidden>
+      <div class="form stack">
+        <h2>Ссылки</h2>
+        <div><label class="label" for="ln-assort">Ассортимент (Telegraph)</label><input class="field" id="ln-assort" type="url"></div>
+        <div><label class="label" for="ln-opt">Опт (Telegram)</label><input class="field" id="ln-opt" type="url"></div>
+        <div><label class="label" for="ln-manager">Менеджер (Telegram)</label><input class="field" id="ln-manager" type="url"></div>
+        <div><label class="label" for="ln-chat">Наш чат (Telegram)</label><input class="field" id="ln-chat" type="url"></div>
+        <div class="row"><button class="pill" id="links-save" type="button">Сохранить ссылки</button></div>
+      </div>
+    </div>
+
+    <div id="t-jobs" class="tab" hidden>
+      <div id="jobs-edit" class="stack"></div>
+      <div class="row" style="margin-top:16px">
+        <button class="pill" id="job-add" type="button">Добавить вакансию</button>
+        <button class="pill" id="jobs-save" type="button">Сохранить вакансии</button>
+      </div>
+    </div>
+
+    <div id="t-promos" class="tab" hidden>
+      <div id="promos-edit" class="stack"></div>
+      <div class="row" style="margin-top:16px"><button class="pill" id="promos-save" type="button">Сохранить акции</button></div>
+    </div>
+
+    <div id="t-music" class="tab" hidden>
+      <div id="music-edit" class="stack"></div>
+      <div class="row" style="margin-top:16px"><button class="pill" id="music-save" type="button">Сохранить музыку</button></div>
+    </div>
+
+    <div class="row" style="margin-top:40px">
+      <a class="pill small" href="./" target="_blank" rel="noopener">Открыть сайт</a>
+      <button class="pill small danger" id="logout" type="button">Выйти</button>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const KEY = "no1-admin";
+let S = null;          // {owner, repo, branch, token}
+let CFG = null, REV = [];
+
+/* ---------- GitHub API ---------- */
+const enc = s => btoa(unescape(encodeURIComponent(s)));
+const dec = b => decodeURIComponent(escape(atob(b.replace(/\n/g, ""))));
+async function gh(path, opts = {}) {
+  const r = await fetch(`https://api.github.com/repos/${S.owner}/${S.repo}${path}`, {
+    ...opts,
+    headers: { "Authorization": "Bearer " + S.token, "Accept": "application/vnd.github+json", ...(opts.body ? {"Content-Type": "application/json"} : {}) }
+  });
+  if (!r.ok) { const e = new Error("GitHub " + r.status); e.status = r.status; throw e; }
+  return r.status === 204 ? null : r.json();
+}
+async function getFile(path) {
+  try { return await gh(`/contents/${path}?ref=${encodeURIComponent(S.branch)}`); }
+  catch (e) { if (e.status === 404) return null; throw e; }
+}
+async function putFile(path, b64, message) {
+  const cur = await getFile(path);
+  return gh(`/contents/${path}`, { method: "PUT", body: JSON.stringify({ message, content: b64, branch: S.branch, ...(cur ? { sha: cur.sha } : {}) }) });
+}
+async function delFile(path, message) {
+  const cur = await getFile(path); if (!cur) return;
+  return gh(`/contents/${path}`, { method: "DELETE", body: JSON.stringify({ message, sha: cur.sha, branch: S.branch }) });
+}
+async function readJSON(path, fallback) {
+  const f = await getFile(path);
+  if (!f) return fallback;
+  try { return JSON.parse(dec(f.content)); } catch { return fallback; }
+}
+const writeJSON = (path, data, msg) => putFile(path, enc(JSON.stringify(data, null, 2) + "\n"), msg);
+const blobToB64 = blob => new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result.split(",")[1]); fr.onerror = rej; fr.readAsDataURL(blob); });
+
+/* ---------- status ---------- */
+function say(t, err) { $("msg").textContent = t; $("msg").className = "msg" + (err ? " err" : ""); }
+function errText(e) {
+  if (e.status === 401) return "Токен недействителен. Выйдите и войдите с новым токеном.";
+  if (e.status === 403) return "У токена нет прав на запись. Дайте ему доступ Contents: Read and write.";
+  if (e.status === 404) return "Репозиторий или ветка не найдены. Проверьте данные входа.";
+  if (e.status === 409 || e.status === 422) return "Файл изменился одновременно с другого устройства. Повторите действие.";
+  return "Не удалось связаться с GitHub. Проверьте интернет и повторите.";
+}
+async function busy(btn, fn) {
+  btn.disabled = true;
+  try { await fn(); } catch (e) { say(errText(e), true); } finally { btn.disabled = false; }
+}
+const DONE = "Сохранено. Сайт обновится через 1–2 минуты.";
+
+/* ---------- вход ---------- */
+(function prefill() {
+  try { S = JSON.parse(localStorage.getItem(KEY) || "null"); } catch {}
+  const h = location.hostname;
+  if (!S && h.endsWith(".github.io")) {
+    const owner = h.split(".")[0], seg = location.pathname.split("/").filter(Boolean)[0];
+    $("s-owner").value = owner;
+    $("s-repo").value = seg && !seg.endsWith(".html") ? seg : h;
+  }
+  if (S) start();
+})();
+$("do-login").onclick = () => busy($("do-login"), async () => {
+  S = { owner: $("s-owner").value.trim(), repo: $("s-repo").value.trim(), branch: $("s-branch").value.trim() || "main", token: $("s-token").value.trim() };
+  $("login-msg").className = "msg";
+  if (!S.owner || !S.repo || !S.token) { $("login-msg").textContent = "Заполните владельца, репозиторий и токен."; $("login-msg").className = "msg err"; return; }
+  $("login-msg").textContent = "Проверяем…";
+  try { await gh(""); } catch (e) { $("login-msg").textContent = errText(e); $("login-msg").className = "msg err"; S = null; return; }
+  try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {}
+  start();
+});
+$("logout").onclick = () => { try { localStorage.removeItem(KEY); } catch {} location.reload(); };
+
+async function start() {
+  $("login").hidden = true; $("panel").hidden = false;
+  say("Загружаем данные…");
+  try {
+    CFG = await readJSON("config.json", { links: {}, vacancies: [], tracks: [] });
+    REV = await readJSON("reviews.json", []);
+    CFG.links = CFG.links || {}; CFG.vacancies = CFG.vacancies || []; CFG.tracks = CFG.tracks || []; CFG.promos = CFG.promos || [];
+    while (CFG.promos.length < 5) CFG.promos.push({ title: "", text: "" });
+    while (CFG.tracks.length < 5) CFG.tracks.push({ title: "Трек " + (CFG.tracks.length + 1), file: "" });
+    renderReviews(); renderLinks(); renderJobs(); renderPromos(); renderMusic();
+    say("");
+  } catch (e) { say(errText(e), true); }
+}
+
+/* ---------- вкладки ---------- */
+document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => {
+  document.querySelectorAll("[data-tab]").forEach(x => x.classList.toggle("on", x === b));
+  document.querySelectorAll(".tab").forEach(t => t.hidden = t.id !== b.dataset.tab);
+  say("");
+});
+
+/* ---------- отзывы ---------- */
+const localPreview = {};
+function renderReviews() {
+  const box = $("rev-list"); box.textContent = "";
+  if (!REV.length) { box.innerHTML = '<p class="empty">Отзывов пока нет. Загрузите первые фото выше.</p>'; return; }
+  REV.forEach((r, i) => {
+    const row = document.createElement("div"); row.className = "item";
+    const im = document.createElement("img"); im.src = localPreview[r.file] || r.file; im.alt = "";
+    const g = document.createElement("div"); g.className = "grow date"; g.textContent = r.date ? new Date(r.date).toLocaleDateString("ru-RU") : "";
+    const up = document.createElement("button"); up.type = "button"; up.className = "pill small"; up.textContent = "Выше"; up.disabled = i === 0;
+    up.onclick = () => busy(up, async () => { [REV[i-1], REV[i]] = [REV[i], REV[i-1]]; await writeJSON("reviews.json", REV, "Порядок отзывов"); renderReviews(); say(DONE); });
+    const del = document.createElement("button"); del.type = "button"; del.className = "pill small danger"; del.textContent = "Удалить";
+    del.onclick = () => busy(del, async () => {
+      if (!confirm("Удалить этот отзыв?")) return;
+      say("Удаляем…");
+      REV.splice(i, 1);
+      await writeJSON("reviews.json", REV, "Удалён отзыв");
+      await delFile(r.file, "Удалено фото отзыва");
+      renderReviews(); say(DONE);
+    });
+    row.append(im, g, up, del); box.appendChild(row);
+  });
+}
+function shrink(file, max = 1400) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      const ctx = c.getContext("2d"); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => { URL.revokeObjectURL(url); b ? res(b) : rej(new Error("image")); }, "image/jpeg", 0.86);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error("image")); };
+    img.src = url;
+  });
+}
+$("rev-upload").onclick = () => busy($("rev-upload"), async () => {
+  const files = [...$("rev-files").files];
+  if (!files.length) { say("Сначала выберите фото.", true); return; }
+  const added = [];
+  for (let n = 0; n < files.length; n++) {
+    say(`Загружаем фото ${n + 1} из ${files.length}…`);
+    let blob; try { blob = await shrink(files[n]); } catch { say(`Файл «${files[n].name}» не похож на картинку — пропускаем.`, true); continue; }
+    const path = `reviews/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.jpg`;
+    await putFile(path, await blobToB64(blob), "Новый отзыв");
+    localPreview[path] = URL.createObjectURL(blob);
+    added.push({ file: path, date: new Date().toISOString() });
+  }
+  if (!added.length) return;
+  REV = [...added.reverse(), ...REV];
+  await writeJSON("reviews.json", REV, "Добавлены отзывы");
+  $("rev-files").value = "";
+  renderReviews(); say(DONE);
+});
+
+/* ---------- ссылки ---------- */
+function renderLinks() { $("ln-assort").value = CFG.links.assort || ""; $("ln-opt").value = CFG.links.opt || ""; $("ln-manager").value = CFG.links.manager || ""; $("ln-chat").value = CFG.links.chat || ""; }
+$("links-save").onclick = () => busy($("links-save"), async () => {
+  CFG.links = { assort: $("ln-assort").value.trim(), opt: $("ln-opt").value.trim(), manager: $("ln-manager").value.trim(), chat: $("ln-chat").value.trim() };
+  say("Сохраняем…"); await saveCfg("Обновлены ссылки"); say(DONE);
+});
+async function saveCfg(msg) {
+  const fresh = await readJSON("config.json", {});
+  await writeJSON("config.json", { ...fresh, links: CFG.links, vacancies: CFG.vacancies, promos: CFG.promos, tracks: CFG.tracks }, msg);
+}
+
+/* ---------- вакансии ---------- */
+function renderJobs() {
+  const box = $("jobs-edit"); box.textContent = "";
+  if (!CFG.vacancies.length) box.innerHTML = '<p class="empty">Вакансий нет. Нажмите «Добавить вакансию».</p>';
+  CFG.vacancies.forEach((v, i) => {
+    const f = document.createElement("div"); f.className = "form stack"; f.style.marginBottom = "0";
+    const t = Object.assign(document.createElement("input"), { className: "field", placeholder: "Название вакансии", value: v.title || "" });
+    const ty = Object.assign(document.createElement("input"), { className: "field", placeholder: "Тип: полная занятость, подработка…", value: v.type || "" });
+    const tx = Object.assign(document.createElement("textarea"), { className: "field", placeholder: "Описание, требования, условия", value: v.text || "" });
+    t.oninput = () => v.title = t.value; ty.oninput = () => v.type = ty.value; tx.oninput = () => v.text = tx.value;
+    const del = Object.assign(document.createElement("button"), { type: "button", className: "pill small danger", textContent: "Удалить вакансию" });
+    del.onclick = () => { CFG.vacancies.splice(i, 1); renderJobs(); say("Не забудьте нажать «Сохранить вакансии»."); };
+    f.append(t, ty, tx, del); box.appendChild(f);
+  });
+}
+$("job-add").onclick = () => { CFG.vacancies.push({ title: "", type: "", text: "" }); renderJobs(); };
+$("jobs-save").onclick = () => busy($("jobs-save"), async () => {
+  CFG.vacancies = CFG.vacancies.filter(v => (v.title || "").trim() || (v.text || "").trim());
+  say("Сохраняем…"); await saveCfg("Обновлены вакансии"); renderJobs(); say(DONE);
+});
+
+/* ---------- акции ---------- */
+const PDAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница, суббота и воскресенье"];
+function renderPromos() {
+  const box = $("promos-edit"); box.textContent = "";
+  CFG.promos.slice(0, 5).forEach((p, i) => {
+    const f = document.createElement("div"); f.className = "form stack"; f.style.marginBottom = "0";
+    const h = Object.assign(document.createElement("h2"), { textContent: PDAYS[i] });
+    const t = Object.assign(document.createElement("input"), { className: "field", placeholder: "Название акции", value: p.title || "" });
+    const tx = Object.assign(document.createElement("textarea"), { className: "field", placeholder: "Описание акции", value: p.text || "" });
+    t.oninput = () => p.title = t.value; tx.oninput = () => p.text = tx.value;
+    f.append(h, t, tx); box.appendChild(f);
+  });
+}
+$("promos-save").onclick = () => busy($("promos-save"), async () => { say("Сохраняем…"); await saveCfg("Обновлены акции"); say(DONE); });
+
+/* ---------- музыка ---------- */
+const pending = {};
+function renderMusic() {
+  const box = $("music-edit"); box.textContent = "";
+  CFG.tracks.slice(0, 5).forEach((tr, i) => {
+    const f = document.createElement("div"); f.className = "form stack"; f.style.marginBottom = "0";
+    const h = Object.assign(document.createElement("h2"), { textContent: "Трек " + (i + 1) });
+    const t = Object.assign(document.createElement("input"), { className: "field", placeholder: "Название песни", value: tr.title || "" });
+    t.oninput = () => tr.title = t.value;
+    const cur = Object.assign(document.createElement("p"), { className: "msg", textContent: tr.file ? "Файл: " + tr.file.split("/").pop() : "Файл не загружен" });
+    const fi = Object.assign(document.createElement("input"), { className: "field", type: "file", accept: "audio/*" });
+    fi.onchange = () => { pending[i] = fi.files[0] || null; if (pending[i]) cur.textContent = "Будет загружен: " + pending[i].name; };
+    const rm = Object.assign(document.createElement("button"), { type: "button", className: "pill small danger", textContent: "Убрать трек" });
+    rm.onclick = () => { tr._remove = tr.file; tr.file = ""; delete pending[i]; cur.textContent = "Файл будет удалён при сохранении"; };
+    f.append(h, t, cur, fi, rm); box.appendChild(f);
+  });
+}
+$("music-save").onclick = () => busy($("music-save"), async () => {
+  for (const [k, file] of Object.entries(pending)) {
+    if (!file) continue;
+    const i = +k, tr = CFG.tracks[i];
+    if (file.size > 40 * 1024 * 1024) { say(`«${file.name}» больше 40 МБ — сожмите файл.`, true); return; }
+    say(`Загружаем «${file.name}»…`);
+    const ext = (file.name.split(".").pop() || "mp3").toLowerCase().replace(/[^a-z0-9]/g, "") || "mp3";
+    const path = `music/${i + 1}-${Date.now()}.${ext}`;
+    await putFile(path, await blobToB64(file), "Музыка: трек " + (i + 1));
+    if (tr.file) tr._remove = tr.file;
+    tr.file = path; delete pending[k];
+  }
+  for (const tr of CFG.tracks) if (tr._remove) { const p = tr._remove; delete tr._remove; await delFile(p, "Удалён старый трек"); }
+  say("Сохраняем…"); await saveCfg("Обновлена музыка"); renderMusic(); say(DONE);
+});
+</script>
+</body>
+</html>
